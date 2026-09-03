@@ -156,6 +156,7 @@
     "lint-package": "publint --pack npm",
     "lint-type-exports": "attw --pack .",
     "lint": "npm-run-all lint-*",
-    "fix": "biome check --write ."
+    "fix": "biome check --write .",
+    "prepare": "npm-run-all clean build-transpile"
   }
 }
