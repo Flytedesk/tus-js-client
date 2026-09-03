@@ -7,10 +7,27 @@ import type {
   SliceType,
 } from '../options.js'
 
-// TODO: Add tests for this.
+export interface FetchHttpStackOptions {
+  /**
+   * Milliseconds to wait for a request to complete before it is aborted. The
+   * Fetch API has no timeout of its own, so without this a request that stalls
+   * without erroring is never resolved nor rejected. Defaults to no timeout.
+   *
+   * A request cancelled this way rejects with a `TimeoutError` DOMException,
+   * which is distinguishable from the `AbortError` that `abort()` produces.
+   */
+  timeout?: number
+}
+
 export class FetchHttpStack implements HttpStack {
+  private _timeout?: number
+
+  constructor({ timeout }: FetchHttpStackOptions = {}) {
+    this._timeout = timeout
+  }
+
   createRequest(method: string, url: string) {
-    return new FetchRequest(method, url)
+    return new FetchRequest(method, url, this._timeout)
   }
 
   getName() {
@@ -23,10 +40,12 @@ class FetchRequest implements HttpRequest {
   private _url: string
   private _headers: Record<string, string> = {}
   private _controller = new AbortController()
+  private _timeout?: number
 
-  constructor(method: string, url: string) {
+  constructor(method: string, url: string, timeout?: number) {
     this._method = method
     this._url = url
+    this._timeout = timeout
   }
 
   getMethod(): string {
@@ -56,15 +75,33 @@ class FetchRequest implements HttpRequest {
       )
     }
 
-    const res = await fetch(this._url, {
-      method: this._method,
-      headers: this._headers,
-      body,
-      signal: this._controller.signal,
-    })
+    const deadline = this._startDeadline()
 
-    const resBody = await res.text()
-    return new FetchResponse(res, resBody)
+    try {
+      const res = await fetch(this._url, {
+        method: this._method,
+        headers: this._headers,
+        body,
+        signal: this._controller.signal,
+      })
+
+      const resBody = await res.text()
+      return new FetchResponse(res, resBody)
+    } finally {
+      // Always cleared: a deadline that outlives its request would abort a
+      // signal with nothing behind it, and keep a timer alive with it.
+      clearTimeout(deadline)
+    }
+  }
+
+  private _startDeadline(): ReturnType<typeof setTimeout> | undefined {
+    if (this._timeout == null) {
+      return undefined
+    }
+
+    return setTimeout(() => {
+      this._controller.abort(new DOMException('Request timed out', 'TimeoutError'))
+    }, this._timeout)
   }
 
   abort(): Promise<void> {

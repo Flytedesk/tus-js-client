@@ -1,11 +1,14 @@
 import { FetchHttpStack } from 'tus-js-client/browser/FetchHttpStack'
+import { wait } from './helpers/utils.js'
 
 // A fetch stub that never settles on its own, but honours the abort signal the
 // same way the real Fetch API does. Needed to exercise FetchRequest#abort.
 function hangingFetch(_url, options) {
   return new Promise((_resolve, reject) => {
     options.signal.addEventListener('abort', () => {
-      reject(new DOMException('The operation was aborted.', 'AbortError'))
+      // Real fetch rejects with the signal's reason, which is an AbortError
+      // DOMException unless abort() was given one.
+      reject(options.signal.reason)
     })
   })
 }
@@ -96,5 +99,68 @@ describe('tus.FetchHttpStack', () => {
     await req.abort()
 
     await expectAsync(sending).toBeRejectedWithError(DOMException, /aborted/)
+  })
+})
+
+describe('tus.FetchHttpStack with a timeout', () => {
+  it('should reject with a TimeoutError once the timeout elapses', async () => {
+    spyOn(window, 'fetch').and.callFake(hangingFetch)
+
+    const req = new FetchHttpStack({ timeout: 50 }).createRequest(
+      'PATCH',
+      'http://tus.io/uploads/foo',
+    )
+
+    await expectAsync(req.send(new Blob(['hello world']))).toBeRejectedWithError(
+      DOMException,
+      /timed out/,
+    )
+  })
+
+  it('should distinguish a timeout from a caller-initiated abort', async () => {
+    spyOn(window, 'fetch').and.callFake(hangingFetch)
+
+    const req = new FetchHttpStack({ timeout: 50 }).createRequest(
+      'PATCH',
+      'http://tus.io/uploads/foo',
+    )
+    const sending = req.send(new Blob(['hello world']))
+    await req.abort()
+
+    await expectAsync(sending).toBeRejectedWithError(DOMException, /aborted/)
+  })
+
+  it('should not abort a request that completes within the timeout', async () => {
+    spyOn(window, 'fetch').and.resolveTo(new Response(null, { status: 204 }))
+
+    const req = new FetchHttpStack({ timeout: 50 }).createRequest(
+      'PATCH',
+      'http://tus.io/uploads/foo',
+    )
+    const res = await req.send(new Blob(['hello world']))
+    const { signal } = window.fetch.calls.mostRecent().args[1]
+
+    expect(res.getStatus()).toBe(204)
+
+    // The deadline must be cleared once the request settles, or it fires against
+    // a signal that no longer has a request behind it.
+    await wait(100)
+    expect(signal.aborted).toBe(false)
+  })
+
+  it('should not time out when no timeout is configured', async () => {
+    spyOn(window, 'fetch').and.callFake(hangingFetch)
+
+    const req = new FetchHttpStack().createRequest('PATCH', 'http://tus.io/uploads/foo')
+    const sending = req.send(new Blob(['hello world']))
+
+    const outcome = await Promise.race([
+      sending.then(
+        () => 'settled',
+        () => 'rejected',
+      ),
+      wait(100),
+    ])
+    expect(outcome).toBe('timed out')
   })
 })

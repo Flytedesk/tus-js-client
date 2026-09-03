@@ -370,6 +370,34 @@ interface HttpResponse {
 
 ```
 
+##### FetchHttpStack
+
+Browsers ship two implementations. The default, `XHRHttpStack`, is built on `XMLHttpRequest` and reports upload progress. `FetchHttpStack` is built on the Fetch API and works where `XMLHttpRequest` does not exist — most notably inside a service worker:
+
+```js
+import { Upload } from 'tus-js-client'
+import { FetchHttpStack } from 'tus-js-client/browser/FetchHttpStack'
+
+const upload = new Upload(file, {
+  endpoint: '/files',
+  httpStack: new FetchHttpStack(),
+  chunkSize: 512 * 1024,
+})
+```
+
+Two differences from `XHRHttpStack` are worth knowing:
+
+- `setProgressHandler` is a no-op, because the Fetch API exposes no upload progress. `onProgress` still fires once per completed `PATCH` request, so a finite `chunkSize` is what determines how granular progress is.
+- Node.js readable streams are not supported as a request body.
+
+`FetchHttpStack` accepts an optional `timeout`, in milliseconds:
+
+```js
+new FetchHttpStack({ timeout: 30000 })
+```
+
+The Fetch API has no timeout of its own, so without one a request that stalls without erroring is never resolved nor rejected. A request cancelled by the timeout rejects with a `TimeoutError` `DOMException`, which is distinguishable from the `AbortError` that `abort()` produces.
+
 #### urlStorage
 
 _Default value:_ Environment-specific implementation
