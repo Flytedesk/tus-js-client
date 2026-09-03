@@ -1,16 +1,23 @@
 let hasStorage = false;
 try {
-    // Note: localStorage does not exist in the Web Worker's context, so we must use window here.
-    hasStorage = 'localStorage' in window;
-    // Attempt to store and read entries from the local storage to detect Private
-    // Mode on Safari on iOS (see #49)
-    // If the key was not used before, we remove it from local storage again to
-    // not cause confusion where the entry came from.
-    const key = 'tusSupport';
-    const originalValue = localStorage.getItem(key);
-    localStorage.setItem(key, String(originalValue));
-    if (originalValue == null)
-        localStorage.removeItem(key);
+    // Note: `window` is absent in a Web Worker and a Service Worker, and a bare
+    // reference to it throws a ReferenceError rather than a DOMException, so it
+    // would escape the catch below and take this module -- and with it the whole
+    // browser entry point -- down on import. `typeof` covers both realms: it is
+    // false where there is no storage, and still throws the SecurityError that a
+    // sandboxed iframe raises from the getter.
+    hasStorage = typeof localStorage !== 'undefined';
+    if (hasStorage) {
+        // Attempt to store and read entries from the local storage to detect Private
+        // Mode on Safari on iOS (see #49)
+        // If the key was not used before, we remove it from local storage again to
+        // not cause confusion where the entry came from.
+        const key = 'tusSupport';
+        const originalValue = localStorage.getItem(key);
+        localStorage.setItem(key, String(originalValue));
+        if (originalValue == null)
+            localStorage.removeItem(key);
+    }
 }
 catch (e) {
     // If we try to access localStorage inside a sandboxed iframe, a SecurityError
