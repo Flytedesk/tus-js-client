@@ -1,17 +1,18 @@
-// A service worker has no `window` and no `localStorage`. Node has neither
-// either, which makes the Node suite the place to prove that the browser's URL
-// storage can be loaded outside a document at all.
+// `lib/browser/urlStorage.ts` runs its feature detection at module scope, so a throw
+// there takes down the browser entry point on import, and with it any hope of using
+// tus-js-client in a Service Worker. This proves the module survives the absence of
+// `window`, which is the condition that used to throw.
 //
-// This module is imported by the browser entry point and runs its feature
-// detection at module scope, so a throw here takes down the whole entry point
-// and with it any hope of using tus-js-client in a service worker.
+// Node and Deno both lack `window`, and they disagree about `localStorage` -- Deno
+// implements Web Storage, Node does not. So what is asserted is that the module LOADS
+// and reports the runtime it actually found, rather than a fixed answer that would
+// only hold on one of them.
 describe('browser urlStorage without DOM globals', () => {
   it('should load where window does not exist', async () => {
     expect(typeof window).toBe('undefined')
-    expect(typeof localStorage).toBe('undefined')
 
     const { canStoreURLs } = await import('../../lib.esm/browser/urlStorage.js')
 
-    expect(canStoreURLs).toBe(false)
+    expect(canStoreURLs).toBe(typeof localStorage !== 'undefined')
   })
 })
